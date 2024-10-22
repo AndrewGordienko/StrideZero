@@ -25,3 +25,7 @@ class Agent:
         values = self.critic(states)
 
         return actions.detach().cpu().numpy(), log_probs.detach().cpu().numpy(), values.detach().cpu().numpy()
+
+    def train(self):
+        torch.cuda.empty_cache()
+
