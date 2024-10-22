@@ -8,7 +8,7 @@ class CriticNetwork(nn.Module):
     def __init__(self, input_dims):
         super(CriticNetwork, self).__init__()
         FC1_DIMS = CRITIC_NETWORK['FC1_DIMS']
-        FC2_dims = CRITIC_NETWORK['FC2_DIMS']
+        FC2_DIMS = CRITIC_NETWORK['FC2_DIMS']
 
         self.fc1 = nn.Linear(input_dims, FC1_DIMS)
         self.fc2 = nn.Linear(FC1_DIMS, FC2_DIMS)
