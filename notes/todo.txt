@@ -1,0 +1,3 @@
+parallel for sample collection
+biped 2d
+biped 2d with legs of 2 or 3 parts

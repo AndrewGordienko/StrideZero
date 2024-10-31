@@ -23,14 +23,14 @@ class Agent:
         self.gamma = AGENT["GAMMA"]
         self.lambda_ = AGENT["LAMBDA"]
         self.entropy_coef = AGENT["ENTROPY_COEF_INIT"]
-        self.entropy_coef_decay = AGENT["ENTROPY_COEF_DECAY"]
+        self.entropy_coef_decay = 0.999
         self.a_optim_batch_size = AGENT["BATCH_SIZE"]
         self.c_optim_batch_size = AGENT["BATCH_SIZE"]
         self.n_epochs = AGENT["N_EPOCHS"]
         self.input_shape = input_shape
         self.action_shape = action_shape
-        self.kl_threshold = 0.005
-        self.damping_coeff = 0.1
+        self.kl_threshold = 0.2
+        self.damping_coeff = 0.05
 
     def choose_action(self, states):
         states = torch.FloatTensor(states).to(self.device)
@@ -103,7 +103,7 @@ class Agent:
         log_probs = dist.log_prob(actions).sum(dim=-1)
 
         # Compute KL divergence with respect to the current distribution
-        kl = torch.sum(log_probs)  # Just sum the log_probs to get a scalar
+        kl = torch.sum(log_probs)
         kl_grad = torch.autograd.grad(kl, self.actor.parameters(), create_graph=True)
         kl_grad_vector = torch.cat([grad.view(-1) for grad in kl_grad])
         kl_dot_vector = torch.dot(kl_grad_vector, vector)
@@ -220,7 +220,8 @@ class Agent:
         
             next_val = self.actor(torch.Tensor(s_next).to(self.device))
             advantages, returns = self.compute_gae(r, val, next_val, done)
-        
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+ 
             value_loss = self.fit_value_function(s, returns)
             policy_loss = self.compute_policy_loss(s, a, logprob_a, advantages)
 
@@ -235,7 +236,6 @@ class Agent:
             torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
             
             policy_grad_norm = torch.norm(policy_grad).item()
-            print(f"Policy gradient norm: {policy_grad_norm}")
 
             fvp_fn = lambda v: self.fisher_vector_product(v, s)
             step_direction = self.conjugate_gradient(fvp_fn, policy_grad)
@@ -251,8 +251,6 @@ class Agent:
                 kl_divergence = self.compute_kl_divergence(old_dist, new_dist)
 
                 total_reward = np.sum(r)
-
-                logger.info(f"KL Divergence after update: {kl_divergence}")
 
                 table.add_row(
                     f"{episode + 1}/{self.n_epochs}",
@@ -271,4 +269,4 @@ class Agent:
                     break
 
         console.print(table)
-
+        self.buffer.clear()
