@@ -16,28 +16,29 @@ def create_bipedal_walker_env():
 
 # Objective function for Optuna optimization
 def objective(trial):
-    # Define the hyperparameter search space
+    # Define fixed hyperparameters
     AGENT = {
-        "ACTOR_LR": trial.suggest_float("ACTOR_LR", 1e-5, 1.3e-5, log=True),
-        "CRITIC_LR": trial.suggest_float("CRITIC_LR", 1e-4, 1.2e-4, log=True),
-        "ENTROPY_COEF_INIT": trial.suggest_float("ENTROPY_COEF_INIT", 0.08, 0.09),
-        "ENTROPY_COEF_DECAY": trial.suggest_float("ENTROPY_COEF_DECAY", 0.983, 0.985),
-        "GAMMA": trial.suggest_float("GAMMA", 0.96, 0.97),
-        "LAMBDA": trial.suggest_float("LAMBDA", 0.87, 0.89),
-        "KL_DIV_THRESHOLD": trial.suggest_float("KL_DIV_THRESHOLD", 0.008, 0.0085),
-        "BATCH_SIZE": trial.suggest_categorical("BATCH_SIZE", [512]),
-        "CLIP_RATIO": trial.suggest_float("CLIP_RATIO", 0.27, 0.29),
-        "ENTROPY_COEF": trial.suggest_float("ENTROPY_COEF", 0.002, 0.0023),
-        "VALUE_LOSS_COEF": trial.suggest_float("VALUE_LOSS_COEF", 0.5, 0.7),
-        "UPDATE_EPOCHS": trial.suggest_int("UPDATE_EPOCHS", 5, 6),
-        "MAX_GRAD_NORM": trial.suggest_float("MAX_GRAD_NORM", 0.21, 0.23)
+        "ACTOR_LR": 1.1533070735302821e-05,
+        "CRITIC_LR": 0.00011670790938402237,
+        "ENTROPY_COEF_INIT": 0.08346871561853314,
+        "ENTROPY_COEF_DECAY": 0.9845136718237683,
+        "GAMMA": 0.9631902401102875,
+        "LAMBDA": 0.8734031304947364,
+        "KL_DIV_THRESHOLD": 0.00807602938974265,
+        "BATCH_SIZE": 512,
+        "CLIP_RATIO": 0.28850409904445223,
+        "ENTROPY_COEF": 0.0021244760700221297,
+        "VALUE_LOSS_COEF": 0.6071602003509949,
+        "UPDATE_EPOCHS": 5,
+       "MAX_GRAD_NORM": 0.21728696180119855,
     }
 
     N_STEPS = 2048
-    num_episodes = 6000  # Reduced for faster trials; adjust as needed
+    num_episodes = 10000
     max_steps_per_episode = 1600
     best_reward = -float('inf')
-    scroll_limit = 10
+    best_avg_reward = -float('inf')
+    reward_history = []
 
     # Initialize the environment
     step("Initializing the environment")
@@ -57,16 +58,17 @@ def objective(trial):
     # Console setup for live display
     console = Console()
     recent_rows = []
+    scroll_limit = 10
 
     # Display hyperparameters in a table
     hyperparam_table = Table(
-        title="Hyperparameters",                    
-        title_style="bold green",           
+        title="Hyperparameters",
+        title_style="bold green",
         border_style="white",
         header_style="bold white",
         box=box.SIMPLE_HEAVY,
     )
-    hyperparam_table.add_column("Parameter", justify="center")                  
+    hyperparam_table.add_column("Parameter", justify="center")
     hyperparam_table.add_column("Value", justify="center")
     for param, value in AGENT.items():
         hyperparam_table.add_row(param, str(value))
@@ -107,14 +109,24 @@ def objective(trial):
                 total_reward += reward
                 step_count += 1
                 total_steps += 1
-
                 # Train at the end of each episode or if the buffer is full
                 if done or agent.buffer.size() >= agent.batch_size:
                     policy_loss, value_loss, entropy = agent.train()
 
-            # Update the best reward if this episode's total reward is higher
+            # Update best_reward model
             if total_reward > best_reward:
                 best_reward = total_reward
+                torch.save(agent.actor.state_dict(), "best_reward_model.pth")
+
+            # Update reward history and best_avg_reward model
+            reward_history.append(total_reward)
+            if len(reward_history) >= 100:
+                avg_reward_last_100 = np.mean(reward_history[-100:])
+                if avg_reward_last_100 > best_avg_reward:
+                    best_avg_reward = avg_reward_last_100
+                    torch.save(agent.actor.state_dict(), "best_avg_reward_model.pth")
+
+            # Track cumulative rewards
             all_reward += total_reward
 
             # Update recent rows for dynamic table display
@@ -122,6 +134,7 @@ def objective(trial):
                 f"[white]{episode + 1}[/white]",
                 f"[white]{total_reward:.2f}[/white]",
                 f"[green]{best_reward:.2f}[/green]",
+                f"[cyan]{best_avg_reward:.2f}[/cyan]",
                 f"[white]{policy_loss:.4f}[/white]",
                 f"[white]{value_loss:.4f}[/white]",
                 f"[white]{entropy:.4f}[/white]",
@@ -143,6 +156,7 @@ def objective(trial):
             table.add_column("Episode", justify="center")
             table.add_column("Total Reward", justify="center")
             table.add_column("Best Reward", justify="center")
+            table.add_column("Best Avg Reward (last 100)", justify="center")
             table.add_column("Policy Loss", justify="center")
             table.add_column("Value Loss", justify="center")
             table.add_column("Entropy", justify="center")
@@ -160,8 +174,8 @@ def objective(trial):
 
 # Run the Optuna study
 study = optuna.create_study(direction="maximize")
-study.optimize(objective, n_trials=10)  # Adjust n_trials as desired
+study.optimize(objective, n_trials=1)  # Adjust n_trials as desired
 
 # Display the best parameters
 print("Best hyperparameters:", study.best_params)
-
+ 

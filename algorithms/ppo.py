@@ -110,6 +110,7 @@ class Agent:
         loader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
         for _ in range(self.update_epochs):
+            self.entropy_coef *= self.entropy_coef_decay
             for batch in loader:
                 batch_states, batch_actions, batch_old_log_probs, batch_advantages, batch_returns = [
                     tensor.to(self.device) for tensor in batch
@@ -159,5 +160,5 @@ class Agent:
         self.buffer.clear()
 
         # Return the losses for logging
-        return policy_loss.item(), value_loss.item(), entropy.item()
+        return policy_loss.item(), value_loss.item(), self.entropy_coef
 

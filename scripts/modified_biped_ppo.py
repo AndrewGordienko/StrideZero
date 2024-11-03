@@ -1,3 +1,33 @@
+from envs.modified_biped import BipedalWalker
+import numpy as np
+
+"""
+if __name__ == "__main__":
+    print("hello world")
+    env = BipedalWalker(render_mode="human")
+    env.reset()
+    print(env.reset())
+    steps = 0
+    total_reward = 0
+    a = np.random.uniform(-1, 1, 6)  # Random values between -1 and 1 for each action element
+    # Heurisic: suboptimal, have no notion of balance.
+    while True:
+        s, r, terminated, truncated, info = env.step(a)
+        total_reward += r
+        if steps % 20 == 0 or terminated or truncated:
+            print("\naction " + str([f"{x:+0.2f}" for x in a]))
+            print(f"step {steps} total_reward {total_reward:+0.2f}")
+            print("hull " + str([f"{x:+0.2f}" for x in s[0:4]]))
+            print("leg0 " + str([f"{x:+0.2f}" for x in s[4:9]]))
+            print("leg1 " + str([f"{x:+0.2f}" for x in s[9:14]]))
+        steps += 1
+
+        a = np.random.uniform(-1, 1, 6)  # Random values between -1 and 1 for each action element
+
+        if terminated or truncated:
+            break
+"""
+
 import optuna
 import torch
 import numpy as np
@@ -8,33 +38,35 @@ from rich.table import Table
 from rich.live import Live
 from rich import box
 from rich.console import Console
+from envs.modified_biped import BipedalWalker
 
 # Define the environment setup function
 def create_bipedal_walker_env():
-    env = gym.make("BipedalWalker-v3")
+    # env = gym.make("BipedalWalker-v3")
+    env = BipedalWalker(render_mode=None)
     return env
 
 # Objective function for Optuna optimization
 def objective(trial):
     # Define the hyperparameter search space
     AGENT = {
-        "ACTOR_LR": trial.suggest_float("ACTOR_LR", 1e-5, 1.3e-5, log=True),
+        "ACTOR_LR": trial.suggest_float("ACTOR_LR", 1.2e-5, 1.5e-5, log=True),
         "CRITIC_LR": trial.suggest_float("CRITIC_LR", 1e-4, 1.2e-4, log=True),
-        "ENTROPY_COEF_INIT": trial.suggest_float("ENTROPY_COEF_INIT", 0.08, 0.09),
-        "ENTROPY_COEF_DECAY": trial.suggest_float("ENTROPY_COEF_DECAY", 0.983, 0.985),
+        "ENTROPY_COEF_INIT": trial.suggest_float("ENTROPY_COEF_INIT", 0.08, 0.1),
+        "ENTROPY_COEF_DECAY": trial.suggest_float("ENTROPY_COEF_DECAY", 0.982, 0.984),
         "GAMMA": trial.suggest_float("GAMMA", 0.96, 0.97),
         "LAMBDA": trial.suggest_float("LAMBDA", 0.87, 0.89),
-        "KL_DIV_THRESHOLD": trial.suggest_float("KL_DIV_THRESHOLD", 0.008, 0.0085),
-        "BATCH_SIZE": trial.suggest_categorical("BATCH_SIZE", [512]),
+        "KL_DIV_THRESHOLD": trial.suggest_float("KL_DIV_THRESHOLD", 0.0083, 0.0087),
+        "BATCH_SIZE": trial.suggest_categorical("BATCH_SIZE", [256, 512]),
         "CLIP_RATIO": trial.suggest_float("CLIP_RATIO", 0.27, 0.29),
-        "ENTROPY_COEF": trial.suggest_float("ENTROPY_COEF", 0.002, 0.0023),
-        "VALUE_LOSS_COEF": trial.suggest_float("VALUE_LOSS_COEF", 0.5, 0.7),
+        "ENTROPY_COEF": trial.suggest_float("ENTROPY_COEF", 0.0020, 0.0025),
+        "VALUE_LOSS_COEF": trial.suggest_float("VALUE_LOSS_COEF", 0.45, 0.5),
         "UPDATE_EPOCHS": trial.suggest_int("UPDATE_EPOCHS", 5, 6),
-        "MAX_GRAD_NORM": trial.suggest_float("MAX_GRAD_NORM", 0.21, 0.23)
+        "MAX_GRAD_NORM": trial.suggest_float("MAX_GRAD_NORM", 0.22, 0.23)
     }
 
     N_STEPS = 2048
-    num_episodes = 6000  # Reduced for faster trials; adjust as needed
+    num_episodes = 1000  # Reduced for faster trials; adjust as needed
     max_steps_per_episode = 1600
     best_reward = -float('inf')
     scroll_limit = 10
@@ -47,7 +79,9 @@ def objective(trial):
 
     input_dims = env.observation_space.shape[0]
     n_actions = env.action_space.shape[0]
-
+    # print("---")
+    # print(input_dims)
+    # print(n_actions)
     # Initialize the agent
     step("Initializing the agent")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -81,6 +115,8 @@ def objective(trial):
         for episode in range(num_episodes):
             done = False
             obs = env.reset()[0]
+            # print("obs")
+            # print(obs)
             total_reward = 0
             step_count = 0
             policy_loss, value_loss, entropy = 0, 0, 0

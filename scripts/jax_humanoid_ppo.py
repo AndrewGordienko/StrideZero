@@ -39,7 +39,7 @@ HYPERPARAMS = {
     "VALUE_LOSS_COEF": 0.5,
     "MAX_GRAD_NORM": 0.5,
     "NUM_ENVS": 5,  # Parallel environments
-    "NUM_EPISODES": 1000,
+    "NUM_EPISODES": 2000,
     "MAX_STEPS_PER_EPISODE": 1600,
 }
 
@@ -144,12 +144,12 @@ with Live(console=console, refresh_per_second=4) as live:
         row_data = [
             f"[white]{episode + 1}[/white]",
             f"[white]{avg_reward:.2f}[/white]",
-            f"[blue]{max_reward:.2f}[/white]",
+            f"[blue]{max_reward:.2f}[/blue]",
             f"[green]{best_reward:.2f}[/green]",
             f"[white]{all_reward / (episode + 1):.2f}[/white]",
             f"[white]{total_steps:.2f}[/white]",
             f"[white]{total_time:.2f}[/white]",
-            ]
+        ]
         recent_rows.append(row_data)
         if len(recent_rows) > scroll_limit:
             recent_rows.pop(0)
