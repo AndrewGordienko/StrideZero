@@ -1,36 +1,7 @@
 from envs.modified_biped import BipedalWalker
 import numpy as np
-
-"""
-if __name__ == "__main__":
-    print("hello world")
-    env = BipedalWalker(render_mode="human")
-    env.reset()
-    print(env.reset())
-    steps = 0
-    total_reward = 0
-    a = np.random.uniform(-1, 1, 6)  # Random values between -1 and 1 for each action element
-    # Heurisic: suboptimal, have no notion of balance.
-    while True:
-        s, r, terminated, truncated, info = env.step(a)
-        total_reward += r
-        if steps % 20 == 0 or terminated or truncated:
-            print("\naction " + str([f"{x:+0.2f}" for x in a]))
-            print(f"step {steps} total_reward {total_reward:+0.2f}")
-            print("hull " + str([f"{x:+0.2f}" for x in s[0:4]]))
-            print("leg0 " + str([f"{x:+0.2f}" for x in s[4:9]]))
-            print("leg1 " + str([f"{x:+0.2f}" for x in s[9:14]]))
-        steps += 1
-
-        a = np.random.uniform(-1, 1, 6)  # Random values between -1 and 1 for each action element
-
-        if terminated or truncated:
-            break
-"""
-
 import optuna
 import torch
-import numpy as np
 import gymnasium as gym
 from algorithms.ppo import Agent
 from utils.logger import info, success, step
@@ -38,11 +9,9 @@ from rich.table import Table
 from rich.live import Live
 from rich import box
 from rich.console import Console
-from envs.modified_biped import BipedalWalker
 
 # Define the environment setup function
 def create_bipedal_walker_env():
-    # env = gym.make("BipedalWalker-v3")
     env = BipedalWalker(render_mode=None)
     return env
 
@@ -50,57 +19,58 @@ def create_bipedal_walker_env():
 def objective(trial):
     # Define the hyperparameter search space
     AGENT = {
-        "ACTOR_LR": trial.suggest_float("ACTOR_LR", 1.2e-5, 1.5e-5, log=True),
-        "CRITIC_LR": trial.suggest_float("CRITIC_LR", 1e-4, 1.2e-4, log=True),
-        "ENTROPY_COEF_INIT": trial.suggest_float("ENTROPY_COEF_INIT", 0.08, 0.1),
-        "ENTROPY_COEF_DECAY": trial.suggest_float("ENTROPY_COEF_DECAY", 0.982, 0.984),
-        "GAMMA": trial.suggest_float("GAMMA", 0.96, 0.97),
-        "LAMBDA": trial.suggest_float("LAMBDA", 0.87, 0.89),
-        "KL_DIV_THRESHOLD": trial.suggest_float("KL_DIV_THRESHOLD", 0.0083, 0.0087),
-        "BATCH_SIZE": trial.suggest_categorical("BATCH_SIZE", [256, 512]),
-        "CLIP_RATIO": trial.suggest_float("CLIP_RATIO", 0.27, 0.29),
-        "ENTROPY_COEF": trial.suggest_float("ENTROPY_COEF", 0.0020, 0.0025),
-        "VALUE_LOSS_COEF": trial.suggest_float("VALUE_LOSS_COEF", 0.45, 0.5),
-        "UPDATE_EPOCHS": trial.suggest_int("UPDATE_EPOCHS", 5, 6),
-        "MAX_GRAD_NORM": trial.suggest_float("MAX_GRAD_NORM", 0.22, 0.23)
+        "ACTOR_LR": trial.suggest_float("ACTOR_LR", 1e-6, 5e-4, log=True),
+        "CRITIC_LR": trial.suggest_float("CRITIC_LR", 5e-5, 5e-4, log=True),
+        "ENTROPY_COEF_INIT": trial.suggest_float("ENTROPY_COEF_INIT", 0.01, 0.1),
+        "ENTROPY_COEF_DECAY": trial.suggest_float("ENTROPY_COEF_DECAY", 0.9, 0.99),
+        "GAMMA": trial.suggest_float("GAMMA", 0.92, 0.99),
+        "LAMBDA": trial.suggest_float("LAMBDA", 0.85, 0.95),
+        "KL_DIV_THRESHOLD": trial.suggest_float("KL_DIV_THRESHOLD", 0.005, 0.02),
+        "BATCH_SIZE": trial.suggest_categorical("BATCH_SIZE", [256, 512, 1024, 2048]),
+        "CLIP_RATIO": trial.suggest_float("CLIP_RATIO", 0.1, 0.2),
+        "ENTROPY_COEF": trial.suggest_float("ENTROPY_COEF", 0.0001, 0.005),
+        "VALUE_LOSS_COEF": trial.suggest_float("VALUE_LOSS_COEF", 0.2, 0.8),
+        "UPDATE_EPOCHS": trial.suggest_int("UPDATE_EPOCHS", 3, 9),
+        "MAX_GRAD_NORM": trial.suggest_float("MAX_GRAD_NORM", 0.1, 0.5)
     }
 
     N_STEPS = 2048
-    num_episodes = 1000  # Reduced for faster trials; adjust as needed
+    num_episodes = 1000
     max_steps_per_episode = 1600
     best_reward = -float('inf')
+    best_100_avg = -float('inf')
+    reward_last_100 = []
     scroll_limit = 10
 
     # Initialize the environment
     step("Initializing the environment")
     env = create_bipedal_walker_env()
     obs = env.reset()
+    print(len(obs))
     info(f"Initial observation: {obs}")
 
     input_dims = env.observation_space.shape[0]
     n_actions = env.action_space.shape[0]
-    # print("---")
-    # print(input_dims)
-    # print(n_actions)
-    # Initialize the agent
+    
+    input_dims = 42
+
     step("Initializing the agent")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     agent = Agent(input_dims, n_actions, device, AGENT)
     info("Agent initialized with input dimensions and number of actions")
-
-    # Console setup for live display
+        
     console = Console()
     recent_rows = []
 
     # Display hyperparameters in a table
     hyperparam_table = Table(
-        title="Hyperparameters",                    
-        title_style="bold green",           
+        title="Hyperparameters",
+        title_style="bold green",
         border_style="white",
         header_style="bold white",
         box=box.SIMPLE_HEAVY,
     )
-    hyperparam_table.add_column("Parameter", justify="center")                  
+    hyperparam_table.add_column("Parameter", justify="center")
     hyperparam_table.add_column("Value", justify="center")
     for param, value in AGENT.items():
         hyperparam_table.add_row(param, str(value))
@@ -110,13 +80,10 @@ def objective(trial):
     all_reward = 0
     total_steps = 0
 
-    # Training loop with live display
     with Live(console=console, refresh_per_second=4) as live:
         for episode in range(num_episodes):
             done = False
             obs = env.reset()[0]
-            # print("obs")
-            # print(obs)
             total_reward = 0
             step_count = 0
             policy_loss, value_loss, entropy = 0, 0, 0
@@ -125,7 +92,7 @@ def objective(trial):
                 action, log_prob, value = agent.choose_action(obs)
                 action = np.clip(action, env.action_space.low, env.action_space.high)
                 action = action[0]
-                # Interact with the environment
+
                 obs_next, reward, done, _, info_env = env.step(action)
                 dw_flags = info_env.get('TimeLimit.truncated', False) if info_env else False
                 agent.buffer.add(
@@ -144,20 +111,31 @@ def objective(trial):
                 step_count += 1
                 total_steps += 1
 
-                # Train at the end of each episode or if the buffer is full
                 if done or agent.buffer.size() >= agent.batch_size:
                     policy_loss, value_loss, entropy = agent.train()
 
-            # Update the best reward if this episode's total reward is higher
+            # Track rewards for the last 100 episodes
+            reward_last_100.append(total_reward)
+            if len(reward_last_100) > 100:
+                reward_last_100.pop(0)
+            avg_last_100 = sum(reward_last_100) / len(reward_last_100)
+
+            # Check for best episode reward and best last 100 average reward
             if total_reward > best_reward:
                 best_reward = total_reward
+                torch.save(agent.actor.state_dict(), f"best_single_reward_model.pth")
+            if avg_last_100 > best_100_avg:
+                best_100_avg = avg_last_100
+                torch.save(agent.actor.state_dict(), f"best_100_avg_model.pth")
+
             all_reward += total_reward
 
-            # Update recent rows for dynamic table display
+            # Update recent rows for table display
             row_data = [
                 f"[white]{episode + 1}[/white]",
                 f"[white]{total_reward:.2f}[/white]",
                 f"[green]{best_reward:.2f}[/green]",
+                f"[cyan]{best_100_avg:.2f}[/cyan]",
                 f"[white]{policy_loss:.4f}[/white]",
                 f"[white]{value_loss:.4f}[/white]",
                 f"[white]{entropy:.4f}[/white]",
@@ -179,6 +157,7 @@ def objective(trial):
             table.add_column("Episode", justify="center")
             table.add_column("Total Reward", justify="center")
             table.add_column("Best Reward", justify="center")
+            table.add_column("Best 100-Avg", justify="center")
             table.add_column("Policy Loss", justify="center")
             table.add_column("Value Loss", justify="center")
             table.add_column("Entropy", justify="center")
@@ -191,13 +170,11 @@ def objective(trial):
     env.close()
     success("Environment closed")
 
-    # Return the average reward as the objective value for Optuna
     return all_reward / num_episodes
 
 # Run the Optuna study
 study = optuna.create_study(direction="maximize")
-study.optimize(objective, n_trials=10)  # Adjust n_trials as desired
+study.optimize(objective, n_trials=10)
 
-# Display the best parameters
 print("Best hyperparameters:", study.best_params)
-
+ 

@@ -25,12 +25,15 @@ except ImportError as e:
 
 FPS = 50
 SCALE = 30.0
-MOTORS_TORQUE = 80
-SPEED_HIP = 4
-SPEED_KNEE = 6
+MOTORS_TORQUE = 150
+SPEED_HIP = 3
+SPEED_KNEE = 4.5
 LIDAR_RANGE = 160 / SCALE
 INITIAL_RANDOM = 5
 HULL_POLY = [(-30, +9), (+6, +9), (+34, +1), (+34, -8), (-30, -8)]
+SCALE_FACTOR = 4 / 3
+HULL_POLY = [(x * SCALE_FACTOR, y * SCALE_FACTOR) for x, y in HULL_POLY]
+
 LEG_DOWN = -8 / SCALE
 LEG_W, LEG_H = 8 / SCALE, 34 / SCALE
 VIEWPORT_W = 600
@@ -326,7 +329,8 @@ class BipedalWalker(gym.Env, EzPickle):
         joint_idx = 0
 
         for i in [-1, +1]:
-            num_subparts = self.np_random.choice([2, 3])
+            # num_subparts = self.np_random.choice([2, 3])
+            num_subparts = 3
             self.num_subparts_list.append(num_subparts)
             # Upper leg
             leg = self.world.CreateDynamicBody(
@@ -336,6 +340,9 @@ class BipedalWalker(gym.Env, EzPickle):
             )
             leg.color1 = (153 - i * 25, 76 - i * 25, 127 - i * 25)
             leg.color2 = (102 - i * 25, 51 - i * 25, 76 - i * 25)
+            leg.ground_contact = False
+            self.ground_contacts.append(leg)
+
             rjd = revoluteJointDef(
                 bodyA=self.hull,
                 bodyB=leg,
@@ -463,39 +470,59 @@ class BipedalWalker(gym.Env, EzPickle):
             0.3 * vel.y * (VIEWPORT_H / SCALE) / FPS,
         ]
 
+        state = [
+            # Hull state information
+            self.hull.angle,  # Hull angle
+            2.0 * self.hull.angularVelocity / FPS,  # Angular velocity
+            0.3 * vel.x * (VIEWPORT_W / SCALE) / FPS,  # Horizontal velocity
+            0.3 * vel.y * (VIEWPORT_H / SCALE) / FPS,  # Vertical velocity
+
+            # Joint and leg state information for Leg 0 (left leg)
+            self.joints[0].angle,  # Hip angle for left leg
+            self.joints[0].speed / SPEED_HIP,  # Hip speed for left leg
+            self.joints[1].angle + 1.0,  # Knee angle for left leg
+            self.joints[1].speed / SPEED_KNEE,  # Knee speed for left leg
+            self.joints[2].angle,  # Lower joint angle for left leg (new subpart)
+            self.joints[2].speed / SPEED_HIP,  # Lower joint speed for left leg (new subpart)
+            1.0 if self.legs[0].ground_contact else 0.0,  # Ground contact for left leg (foot/ankle)
+
+            # Joint and leg state information for Leg 1 (right leg)
+            self.joints[3].angle,  # Hip angle for right leg
+            self.joints[3].speed / SPEED_HIP,  # Hip speed for right leg
+            self.joints[4].angle + 1.0,  # Knee angle for right leg
+            self.joints[4].speed / SPEED_KNEE,  # Knee speed for right leg
+            self.joints[5].angle,  # Lower joint angle for right leg (new subpart)
+            self.joints[5].speed / SPEED_HIP,  # Lower joint speed for right leg (new subpart)
+            1.0 if self.legs[1].ground_contact else 0.0,  # Ground contact for right leg (foot/ankle)
+        ]
+
         leg_idx = 0
         joint_idx = 0
-        for num_subparts in self.num_subparts_list:
-            # For each leg
-            for j in range(3):  # Up to 3 joints
-                if j < num_subparts:
-                    joint = self.joints[joint_idx]
-                    state.append(joint.angle)
-                    state.append(joint.speed / SPEED_HIP)
-                    joint_idx += 1
-                else:
-                    # Pad with zeros
-                    state.append(0.0)
-                    state.append(0.0)
-            # Ground contact: check both lower leg and foot
+        # Loop to add exactly three joints (subparts) per leg without padding
+        for leg_idx in range(2):  # Two legs
+            for j in range(3):  # Three subparts per leg
+                joint = self.joints[joint_idx]
+                state.append(joint.angle)
+                state.append(joint.speed / SPEED_HIP)
+                joint_idx += 1
+            
+            # Ground contact for lower leg and foot
             lower_leg = self.ground_contacts[leg_idx * 2]
             foot = self.ground_contacts[leg_idx * 2 + 1]
             ground_contact = 1.0 if lower_leg.ground_contact or foot.ground_contact else 0.0
             state.append(ground_contact)
-            leg_idx += 1
 
         state += [l.fraction for l in self.lidar]
-        assert len(state) == 28
 
         self.scroll = pos.x - VIEWPORT_W / SCALE / 5
-        shaping = 130 * pos[0] / SCALE - 5.0 * abs(state[0])
+        shaping = 130 * pos[0] / SCALE - 6.0 * abs(state[0])
         reward = 0.0
         if self.prev_shaping is not None:
             reward = shaping - self.prev_shaping
         self.prev_shaping = shaping
 
         for a in action:
-            reward -= 0.00035 * MOTORS_TORQUE * np.clip(np.abs(a), 0, 1)
+            reward -= 0.00025 * MOTORS_TORQUE * np.clip(np.abs(a), 0, 1)
 
         terminated = False
         if self.game_over or pos[0] < 0:
